@@ -1,9 +1,8 @@
-import argparse
-import base64
+import os
 import json
+import base64
 import threading
 import time
-import os
 import sys
 import io
 
@@ -12,14 +11,33 @@ import requests
 
 # Google Speech-to-Text imports
 from google.cloud import speech_v1p1beta1 as speech
-from google.cloud import storage
+
+# Credential loading function
+def load_credentials():
+    """
+    Load Google Cloud credentials from environment variable.
+    Creates a temporary credentials file for authentication.
+    """
+    credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    if credentials_json:
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            temp_file.write(credentials_json)
+            temp_file.flush()
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_file.name
+
+# Load credentials early
+load_credentials()
 
 app = Flask(__name__, static_folder='static')
 
-# N8N Webhook URL
-N8N_WEBHOOK_URL = "https://kkarodia.app.n8n.cloud/webhook/eb567b24-6461-4e58-b761-746ccf6b52ea"
+# Configuration
+N8N_WEBHOOK_URL = os.environ.get(
+    'N8N_WEBHOOK_URL', 
+    "https://kkarodia.app.n8n.cloud/webhook/eb567b24-6461-4e58-b761-746ccf6b52ea"
+)
 
-# Global variables for transcription
+# Global variables
 transcription_queue = []
 final_transcript = []
 is_transcribing = False
@@ -32,13 +50,11 @@ def send_transcript_to_webhook(transcript):
     :return: Response from the webhook
     """
     try:
-        # Prepare the payload
         payload = {
             "transcript": transcript,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         
-        # Send POST request to webhook
         headers = {"Content-Type": "application/json"}
         response = requests.post(N8N_WEBHOOK_URL, 
                                  data=json.dumps(payload), 
@@ -59,21 +75,21 @@ def transcribe_audio_file(content):
     :param content: Bytes of the audio file
     :return: Transcription text
     """
-    # Create a client
-    client = speech.SpeechClient()
-    
-    # Configure the speech recognition request
-    audio = speech.RecognitionAudio(content=content)
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-        sample_rate_hertz=48000,  # Adjust based on your audio
-        language_code="en-US",
-        enable_automatic_punctuation=True,
-        model="video",  # Use a model optimized for video/audio with background noise
-    )
-    
-    # Perform the transcription
     try:
+        # Create a client
+        client = speech.SpeechClient()
+        
+        # Configure the speech recognition request
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,  # Adjust based on your audio
+            language_code="en-US",
+            enable_automatic_punctuation=True,
+            model="video",  # Use a model optimized for video/audio with background noise
+        )
+        
+        # Perform the transcription
         response = client.recognize(config=config, audio=audio)
         
         # Extract transcripts
@@ -143,5 +159,7 @@ def clear_transcript():
     final_transcript = []
     return jsonify({"status": "Transcript cleared"})
 
+# Heroku compatibility: use PORT environment variable
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port, debug=True)
