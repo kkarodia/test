@@ -5,6 +5,7 @@ import threading
 import time
 import sys
 import io
+import tempfile
 
 from flask import Flask, render_template, Response, jsonify, send_from_directory, request
 import requests
@@ -12,22 +13,48 @@ import requests
 # Google Speech-to-Text imports
 from google.cloud import speech_v1p1beta1 as speech
 
-# Credential loading function
+
+
+
 def load_credentials():
     """
     Load Google Cloud credentials from environment variable.
     Creates a temporary credentials file for authentication.
     """
-    credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-    if credentials_json:
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-            temp_file.write(credentials_json)
-            temp_file.flush()
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_file.name
+    try:
+        # Get the credentials from environment variable
+        credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        
+        if not credentials_json:
+            print("ERROR: No credentials found in environment variable")
+            return None
 
-# Load credentials early
-load_credentials()
+        # Try to parse the JSON
+        try:
+            credentials_dict = json.loads(credentials_json)
+        except json.JSONDecodeError:
+            print("ERROR: Invalid JSON in credentials")
+            return None
+
+        # Create a temporary file to store credentials
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            json.dump(credentials_dict, temp_file)
+            temp_file.flush()
+            credentials_path = temp_file.name
+
+        # Set the environment variable to point to the temporary file
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        print(f"Credentials loaded successfully at {credentials_path}")
+        return credentials_path
+
+    except Exception as e:
+        print(f"CRITICAL ERROR loading credentials: {e}")
+        return None
+
+# Call this early in your application startup
+credentials_file = load_credentials()
+if not credentials_file:
+    print("FATAL: Could not load Google Cloud credentials")
 
 app = Flask(__name__, static_folder='static')
 
