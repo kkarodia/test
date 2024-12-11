@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transcription App</title>
+    <link rel="stylesheet" href="static/styles.css">
+    
+</head>
+<body>
+    <h1>Transcription App</h1>
+    <button id="startButton">Start Transcribing</button>
+    <button id="stopButton">Stop Transcribing</button>
+
+    <!-- <h2>Live Transcript:</h2>-->
+    <!--<div id="transcript"></div>-->
+
+    <h2>Last Returned Audio:</h2>
+    <div id="lastReturnedAudio"></div>
+
+    <h2>Final Transcript:</h2>
+    <div id="finalTranscript"></div>
+
+    <button onclick="generatePDF()">Generate PDF Report</button>
+
+    <div class="overlay" id="overlay"></div>
+    <div class="popup" id="loadingPopup">
+        <div class="spinner"></div>
+        <p>Generating PDF...</p>
+    </div>
+    <div class="popup" id="successPopup">
+        <p>PDF created</p>
+        <button onclick="closeSuccessPopup()">Close</button>
+    </div>
+
+    <script>
+       let mediaRecorder;
+        let audioChunks = [];
+
+        async function startRecording() {
+            try {
+                // Request microphone access
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Initialize MediaRecorder
+                mediaRecorder = new MediaRecorder(stream);
+                
+                // Reset audio chunks
+                audioChunks = [];
+                
+                // Event to collect audio data
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                // When recording stops, send audio to server
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'recording.webm');
+                    
+                    try {
+                        // Send to backend for transcription
+                        const response = await fetch('/start_transcription', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.transcript) {
+                            // Update transcript in UI
+                            document.getElementById('lastReturnedAudio').textContent = data.transcript;
+                            document.getElementById('finalTranscript').textContent += data.transcript + ' ';
+                        } else {
+                            console.error('No transcript returned');
+                        }
+                    } catch (error) {
+                        console.error('Transcription error:', error);
+                    }
+                };
+                
+                // Start recording
+                mediaRecorder.start();
+                
+                // Update UI
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+            } catch (error) {
+                console.error('Error starting recording:', error);
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                
+                // Update UI
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+                
+                // Call backend to stop transcription
+                fetch('/stop_transcription');
+            }
+        }
+
+        function clearTranscript() {
+            document.getElementById('lastReturnedAudio').textContent = '';
+            document.getElementById('finalTranscript').textContent = '';
+            fetch('/clear_transcript');
+        }
+
+        // Add event listeners when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('startButton').addEventListener('click', startRecording);
+            document.getElementById('stopButton').addEventListener('click', stopRecording);
+            document.getElementById('clearButton').addEventListener('click', clearTranscript);
+        });
+
+
+     
+        window.watsonAssistantChatOptions = {
+            integrationID: "1c552c85-6d38-4d60-9c6d-1875b7e5d343", // The ID of this integration.
+            region: "us-south", // The region your integration is hosted in.
+            serviceInstanceID: "facd8e23-0735-4e76-ac66-4ea35dc1811a", // The ID of your service instance.
+            onLoad: async (instance) => { await instance.render(); }
+        };
+        setTimeout(function(){
+            const t=document.createElement('script');
+            t.src="https://web-chat.global.assistant.watson.appdomain.cloud/versions/" + (window.watsonAssistantChatOptions.clientVersion || 'latest') + "/WatsonAssistantChatEntry.js";
+            document.head.appendChild(t);
+        });
+    </script>
+</body>
+</html>
